@@ -241,30 +241,6 @@ export default function AddVehicle() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Bidding Duration
-            </label>
-            <div className="grid grid-cols-7 gap-2">
-              {[1, 2, 3, 4, 5, 6, 7].map((days) => (
-                <button
-                  key={days}
-                  type="button"
-                  onClick={() => setFormData({ ...formData, biddingDuration: days })}
-                  className={`p-3 border-2 rounded-lg transition-all text-center ${
-                    formData.biddingDuration === days
-                      ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-200'
-                      : 'border-gray-300 hover:border-indigo-300 hover:bg-gray-50'
-                  }`}
-                >
-                  <div className="text-lg font-bold text-gray-900">{days}</div>
-                  <div className="text-xs text-gray-600">{days === 1 ? 'day' : 'days'}</div>
-                </button>
-              ))}
-            </div>
-            <p className="text-xs text-gray-500 mt-2">Select how many days the bidding will remain active</p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
               Location
             </label>
             <LocationPicker
@@ -662,6 +638,33 @@ export default function AddVehicle() {
               </div>
             </div>
           </div>
+
+          {/* Bidding Duration - Only visible when negotiation is enabled */}
+          {formData.negotiable && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Bidding Duration
+              </label>
+              <div className="grid grid-cols-7 gap-2">
+                {[1, 2, 3, 4, 5, 6, 7].map((days) => (
+                  <button
+                    key={days}
+                    type="button"
+                    onClick={() => setFormData({ ...formData, biddingDuration: days })}
+                    className={`p-3 border-2 rounded-lg transition-all text-center ${
+                      formData.biddingDuration === days
+                        ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-200'
+                        : 'border-gray-300 hover:border-indigo-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="text-lg font-bold text-gray-900">{days}</div>
+                    <div className="text-xs text-gray-600">{days === 1 ? 'day' : 'days'}</div>
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-gray-500 mt-2">Select how many days the bidding will remain active</p>
+            </div>
+          )}
 
           {/* Image Upload with Drag & Drop */}
           <div>

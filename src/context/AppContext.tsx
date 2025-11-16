@@ -29,7 +29,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   useEffect(() => {
     const storedVehicles = localStorage.getItem('vehicles');
     const dataVersion = localStorage.getItem('dataVersion');
-    const currentVersion = '3.0'; // Update this when mockData changes
+    const currentVersion = '3.1'; // Update this when mockData changes
     
     if (storedVehicles && dataVersion === currentVersion) {
       try {
@@ -101,7 +101,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     );
   };
 
-  const placeBid = async (vehicleId: string, biddingType: BiddingType): Promise<boolean> => {
+  const placeBid = async (vehicleId: string, biddingType: BiddingType, customAmount?: number): Promise<boolean> => {
     if (!user) return false;
 
     const vehicle = vehicles.find((v) => v.id === vehicleId);
@@ -133,8 +133,19 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       }
     }
 
-    // Calculate new price
-    const newPrice = calculateNewBidPrice(vehicle.currentPrice, biddingType);
+    // Calculate new price - use custom amount as INCREMENT if provided, otherwise calculate 1%
+    let newPrice: number;
+    if (customAmount && customAmount > 0) {
+      // Custom amount is an increment to add to current price
+      if (biddingType === 'upward') {
+        newPrice = vehicle.currentPrice + customAmount;
+      } else {
+        newPrice = vehicle.currentPrice - customAmount;
+      }
+    } else {
+      // No custom amount - use default 1% calculation
+      newPrice = calculateNewBidPrice(vehicle.currentPrice, biddingType);
+    }
     
     // Get the starting bid price (system suggested price)
     const startingBidPrice = vehicle.suggestedStartingBid || vehicle.basePrice;

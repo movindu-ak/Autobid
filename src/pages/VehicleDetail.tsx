@@ -1,10 +1,11 @@
-﻿import { useState } from 'react';
+﻿import { useState, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
-import { formatTimeRemaining, calculateNewBidAmount, calculateSuggestedBidAmount } from '../utils/helpers';
+import { formatTimeRemaining, calculateSuggestedBidAmount } from '../utils/helpers';
 import LocationDisplay from '../components/LocationDisplay';
 import type { BiddingType } from '../types/index';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 export default function VehicleDetail() {
   const { id } = useParams<{ id: string }>();
@@ -17,6 +18,63 @@ export default function VehicleDetail() {
   const [bidding, setBidding] = useState(false);
 
   const vehicle = getVehicleById(id || '');
+
+  const startingBidPrice = vehicle?.suggestedStartingBid || vehicle?.basePrice || 0;
+  
+  // Check user's previous bids on THIS vehicle to determine locked direction
+  const userPreviousBids = user && vehicle ? vehicle.bids.filter(bid => bid.userId === user.id) : [];
+  const userBidDirection = userPreviousBids.length > 0 
+    ? userPreviousBids[userPreviousBids.length - 1].type 
+    : null;
+
+  // Prepare chart data: group bids by day and track price progression
+  const chartData = useMemo(() => {
+    if (!vehicle) return [];
+
+    // Calculate auction start date
+    const auctionStart = new Date(vehicle.createdAt);
+
+    // Sort bids by timestamp
+    const sortedBids = [...vehicle.bids].sort((a, b) => 
+      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+
+    // Create a data point for each bid
+    const bidDataPoints: { day: number; price: number }[] = [];
+
+    sortedBids.forEach(bid => {
+      const bidDate = new Date(bid.timestamp);
+      const dayNumber = Math.floor((bidDate.getTime() - auctionStart.getTime()) / (1000 * 60 * 60 * 24));
+      
+      // Only include upgrade bids (above starting price)
+      if (bid.amount > startingBidPrice) {
+        bidDataPoints.push({
+          day: dayNumber,
+          price: bid.amount
+        });
+      }
+    });
+
+    // If no bids, add a starting point at day 0 with starting bid price
+    // This ensures the chart always displays with proper axes
+    if (bidDataPoints.length === 0) {
+      bidDataPoints.push({
+        day: 0,
+        price: startingBidPrice
+      });
+    }
+
+    return bidDataPoints;
+  }, [vehicle, startingBidPrice]);
+
+  // Calculate X-axis ticks for all days
+  const xAxisTicks = useMemo(() => {
+    if (!vehicle) return [];
+    const auctionStart = new Date(vehicle.createdAt);
+    const auctionEnd = new Date(vehicle.biddingEndTime);
+    const totalDays = Math.ceil((auctionEnd.getTime() - auctionStart.getTime()) / (1000 * 60 * 60 * 24));
+    return Array.from({ length: totalDays + 1 }, (_, i) => i);
+  }, [vehicle]);
 
   if (!vehicle) {
     return (
@@ -43,6 +101,36 @@ export default function VehicleDetail() {
   const handlePlaceBid = async () => {
     if (!user) return;
     
+    // Calculate maximum allowed increment (1% of base price)
+    const maxAllowedIncrement = Math.floor(vehicle.basePrice * 0.01);
+    
+    // Validate custom amount if provided
+    if (customAmount) {
+      const amount = parseInt(customAmount);
+      if (isNaN(amount) || amount <= 0) {
+        alert('Please enter a valid amount');
+        return;
+      }
+      // Check if increment amount is reasonable (not too small)
+      if (amount < 5000) {
+        alert('Increment amount must be at least Rs. 5,000');
+        return;
+      }
+      // Check if amount is a multiple of 5000
+      if (amount % 5000 !== 0) {
+        alert('Bid amount must be a multiple of Rs. 5,000 (e.g., 5000, 10000, 15000)');
+        return;
+      }
+      // Check if increment exceeds 1% of base price
+      if (amount > maxAllowedIncrement) {
+        alert(
+          `Bid increment cannot exceed 1% of base price!\n\n` +
+          `Please enter an amount up to Rs. ${maxAllowedIncrement.toLocaleString()}`
+        );
+        return;
+      }
+    }
+    
     setBidding(true);
     const amount = customAmount ? parseInt(customAmount) : undefined;
     const success = await placeBid(vehicle.id, selectedBidType, amount);
@@ -52,28 +140,6 @@ export default function VehicleDetail() {
       setShowBidModal(false);
       setCustomAmount('');
     }
-  };
-
-  const startingBidPrice = vehicle.suggestedStartingBid || vehicle.basePrice;
-  
-  // Check user's previous bids on THIS vehicle to determine locked direction
-  const userPreviousBids = user ? vehicle.bids.filter(bid => bid.userId === user.id) : [];
-  const userBidDirection = userPreviousBids.length > 0 
-    ? userPreviousBids[userPreviousBids.length - 1].type 
-    : null;
-  
-  // Separate bids into upgrade and downgrade
-  const upgradeBids = vehicle.bids.filter(b => b.amount > startingBidPrice);
-  const downgradeBids = vehicle.bids.filter(b => b.amount <= startingBidPrice);
-
-  const bidStats = {
-    highest: vehicle.bids.length > 0 ? Math.max(...vehicle.bids.map(b => b.amount)) : vehicle.basePrice,
-    lowest: vehicle.bids.length > 0 ? Math.min(...vehicle.bids.map(b => b.amount)) : vehicle.basePrice,
-    average: vehicle.bids.length > 0 
-      ? Math.round(vehicle.bids.reduce((sum, b) => sum + b.amount, 0) / vehicle.bids.length)
-      : vehicle.basePrice,
-    upgradeCount: upgradeBids.length,
-    downgradeCount: downgradeBids.length,
   };
 
   return (
@@ -136,77 +202,70 @@ export default function VehicleDetail() {
                   <p className="text-sm text-gray-500">Total Bids</p>
                   <p className="text-lg font-semibold">{vehicle.bids.length}</p>
                 </div>
-                <div>
-                  <p className="text-sm text-gray-500">Time Remaining</p>
-                  <p className="text-lg font-semibold">{formatTimeRemaining(vehicle.biddingEndTime)}</p>
-                </div>
-              </div>
-
-              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                <h3 className="font-semibold mb-3">Bid Statistics</h3>
-                
-                {/* Price Statistics */}
-                <div className="grid grid-cols-3 gap-4 text-center mb-4 pb-4 border-b border-gray-200">
+                {vehicle.negotiable && (
                   <div>
-                    <p className="text-xs text-gray-500">Highest</p>
-                    <p className="font-semibold text-green-600">Rs. {bidStats.highest.toLocaleString()}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Average</p>
-                    <p className="font-semibold">Rs. {bidStats.average.toLocaleString()}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Lowest</p>
-                    <p className="font-semibold text-red-600">Rs. {bidStats.lowest.toLocaleString()}</p>
-                  </div>
-                </div>
-
-                {/* Bid Type Statistics */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-gradient-to-br from-green-50 to-emerald-50 p-3 rounded-lg border border-green-200">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-xs text-green-700 font-medium">Upgrade Bids</p>
-                        <p className="text-sm text-gray-600 mt-0.5">(Above Starting Price)</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-2xl font-bold text-green-700">{bidStats.upgradeCount}</p>
-                        <p className="text-xs text-green-600">
-                          {vehicle.bids.length > 0 
-                            ? `${Math.round((bidStats.upgradeCount / vehicle.bids.length) * 100)}%`
-                            : '0%'}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-gradient-to-br from-orange-50 to-red-50 p-3 rounded-lg border border-orange-200">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-xs text-orange-700 font-medium">Downgrade Bids</p>
-                        <p className="text-sm text-gray-600 mt-0.5">(Below Starting Price)</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-2xl font-bold text-orange-700">{bidStats.downgradeCount}</p>
-                        <p className="text-xs text-orange-600">
-                          {vehicle.bids.length > 0 
-                            ? `${Math.round((bidStats.downgradeCount / vehicle.bids.length) * 100)}%`
-                            : '0%'}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Information Note */}
-                {vehicle.suggestedStartingBid && (
-                  <div className="mt-3 p-2 bg-blue-50 rounded border border-blue-200">
-                    <p className="text-xs text-blue-700">
-                      💡 Only bids above Rs. {vehicle.suggestedStartingBid.toLocaleString()} (starting price) affect the current price
-                    </p>
+                    <p className="text-sm text-gray-500">Time Remaining</p>
+                    <p className="text-lg font-semibold">{formatTimeRemaining(vehicle.biddingEndTime)}</p>
                   </div>
                 )}
               </div>
+
+              {/* Price Progression Chart */}
+              <div className="mb-6">
+                <h3 className="font-semibold mb-4 text-gray-900">Price Progression</h3>
+                <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart 
+                      data={chartData}
+                      margin={{ top: 20, right: 30, left: 20, bottom: 20 }}
+                    >
+                      <CartesianGrid strokeDasharray="0" stroke="#d1d5db" strokeWidth={1} />
+                      <XAxis 
+                        dataKey="day" 
+                        label={{ value: 'Days in Auction', position: 'insideBottom', offset: -10, style: { fontSize: 12 } }}
+                        tick={{ fontSize: 12 }}
+                        type="number"
+                        domain={[0, xAxisTicks.length > 0 ? Math.max(...xAxisTicks) : 1]}
+                        ticks={xAxisTicks}
+                        allowDecimals={false}
+                        axisLine={{ stroke: '#374151', strokeWidth: 2 }}
+                      />
+                      <YAxis 
+                        label={{ value: 'Price (Rs.)', angle: -90, position: 'insideLeft', style: { fontSize: 12 } }}
+                        tick={{ fontSize: 12 }}
+                        tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
+                        domain={[
+                          Math.floor((vehicle.suggestedStartingBid || vehicle.basePrice * 0.85)),
+                          Math.ceil(vehicle.basePrice * 1.15)
+                        ]}
+                        allowDataOverflow={false}
+                        tickCount={6}
+                        axisLine={{ stroke: '#374151', strokeWidth: 2 }}
+                      />
+                        <Tooltip 
+                          formatter={(value) => {
+                            if (value === null || value === undefined) return ['No bids', ''];
+                            return [`Rs. ${Number(value).toLocaleString()}`, 'Price'];
+                          }}
+                          labelFormatter={(label) => `Day ${label}`}
+                          contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}
+                        />
+                        <Line 
+                          type="linear" 
+                          dataKey="price" 
+                          stroke="#ef4444" 
+                          strokeWidth={3}
+                          dot={{ fill: '#ef4444', r: 7, strokeWidth: 0 }}
+                          activeDot={{ r: 9, fill: '#ef4444' }}
+                          connectNulls={true}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                    <p className="text-xs text-gray-500 mt-2 text-center">
+                      Track how the price has changed throughout the auction period
+                    </p>
+                  </div>
+                </div>
             </div>
           </div>
 
@@ -388,21 +447,23 @@ export default function VehicleDetail() {
             )}
             
             <div className="grid grid-cols-1 gap-3">
-              <div className="grid grid-cols-2 gap-3">
+              {/* <div className="grid grid-cols-2 gap-3"> */}
+              <div>
                 <button
                   onClick={() => handleBidClick('upward')}
                   disabled={userBidDirection === 'downward'}
-                  className={`px-4 py-3 rounded-lg font-medium transition-colors text-sm ${
+                  className={`w-full px-4 py-3 rounded-lg font-medium transition-colors text-sm ${
                     userBidDirection === 'downward'
                       ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                       : 'bg-green-600 text-white hover:bg-green-700'
                   }`}
                   title={userBidDirection === 'downward' ? 'Locked to downward bidding on this vehicle' : ''}
                 >
-                  Bid Up 📈 (+0.5%-1%)
+                  Bid Up 📈
                   {userBidDirection === 'downward' && ' 🔒'}
                 </button>
-                <button
+                {/* Downward bidding temporarily disabled */}
+                {/* <button
                   onClick={() => handleBidClick('downward')}
                   disabled={userBidDirection === 'upward'}
                   className={`px-4 py-3 rounded-lg font-medium transition-colors text-sm ${
@@ -414,10 +475,10 @@ export default function VehicleDetail() {
                 >
                   Bid Down 📉 (-0.5%-1%)
                   {userBidDirection === 'upward' && ' 🔒'}
-                </button>
+                </button> */}
               </div>
               <p className="text-xs text-gray-500 text-center">
-                Quick bid uses 1% change. Use custom amount for 0.5%-1% range (multiples of Rs. 5,000)
+                Quick bid increases price by 1%. Or use custom amount to enter your specific bid price.
               </p>
             </div>
 
@@ -547,18 +608,15 @@ export default function VehicleDetail() {
             <div className="mb-4 p-4 bg-gray-50 rounded-lg">
               <p className="text-sm text-gray-600 mb-2">Current Price:</p>
               <p className="text-2xl font-bold">Rs. {vehicle.currentPrice.toLocaleString()}</p>
-              <p className="text-sm text-gray-600 mt-2">
-                New Price: Rs. {calculateNewBidAmount(vehicle.currentPrice, selectedBidType).toLocaleString()}
-              </p>
               <p className="text-sm text-red-600 mt-2">Bidding Fee: Rs. 50</p>
             </div>
 
             <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs text-blue-600 font-medium mb-1">💡 Suggested Bid Amount</p>
+                  <p className="text-xs text-blue-600 font-medium mb-1">💡 Suggested Increment Amount</p>
                   <p className="text-lg font-bold text-blue-700">Rs. {calculateSuggestedBidAmount(vehicle.currentPrice).toLocaleString()}</p>
-                  <p className="text-xs text-blue-600 mt-1">Recommended starting point (0.75% of current price)</p>
+                  <p className="text-xs text-blue-600 mt-1">Recommended increment (0.75% of current price)</p>
                 </div>
                 <button
                   onClick={() => setCustomAmount(calculateSuggestedBidAmount(vehicle.currentPrice).toString())}
@@ -571,16 +629,20 @@ export default function VehicleDetail() {
 
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Custom Amount (optional, multiples of 5000, between 0.5%-1% of current price)
+                Custom Bid Amount (Amount to add/subtract from current price)
               </label>
               <input
                 type="number"
                 step="5000"
+                min="5000"
                 value={customAmount}
                 onChange={(e) => setCustomAmount(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                placeholder="e.g., 5000, 10000"
+                placeholder="Enter increment amount (e.g., 10000)"
               />
+              <p className="text-xs text-gray-500 mt-1">
+                Example: Enter 10,000 to {selectedBidType === 'upward' ? 'increase' : 'decrease'} price by Rs. 10,000. Recommended: multiples of Rs. 5,000
+              </p>
             </div>
 
             <div className="flex gap-3">

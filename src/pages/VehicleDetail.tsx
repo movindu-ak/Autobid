@@ -460,6 +460,7 @@ export default function VehicleDetail() {
                   title={userBidDirection === 'downward' ? 'Locked to downward bidding on this vehicle' : ''}
                 >
                   Bid Up 📈
+                    
                   {userBidDirection === 'downward' && ' 🔒'}
                 </button>
                 {/* Downward bidding temporarily disabled */}

@@ -111,6 +111,60 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
 });
 
 /**
+ * @desc    Google OAuth login/signup
+ * @route   POST /api/auth/google
+ * @access  Public
+ */
+export const googleAuth = asyncHandler(async (req: Request, res: Response) => {
+  const { email, displayName, photoURL, googleId } = req.body;
+
+  // Validate input
+  if (!email || !displayName) {
+    throw new AppError('Please provide email and display name', 400);
+  }
+
+  // Check if user already exists
+  let user = await User.findOne({ email });
+
+  if (!user) {
+    // Create new user with Google auth (no password required)
+    user = await User.create({
+      email,
+      displayName,
+      photoURL,
+      password: `google_${googleId}_${Date.now()}`, // Random password for Google users
+      walletBalance: 5000,
+      balance: 5000,
+      favorites: [],
+    });
+  }
+
+  // Generate token
+  const token = generateToken({
+    userId: user._id.toString(),
+    email: user.email,
+  });
+
+  res.status(200).json({
+    success: true,
+    message: 'Google authentication successful',
+    data: {
+      token,
+      user: {
+        id: user._id,
+        email: user.email,
+        displayName: user.displayName,
+        walletBalance: user.walletBalance,
+        balance: user.balance,
+        favorites: user.favorites,
+        photoURL: user.photoURL,
+        createdAt: user.createdAt,
+      },
+    },
+  });
+});
+
+/**
  * @desc    Get current logged-in user
  * @route   GET /api/auth/me
  * @access  Private

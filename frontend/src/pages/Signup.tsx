@@ -53,7 +53,8 @@ const Signup = () => {
       await loginWithGoogle();
       navigate(from, { replace: true });
     } catch (err: any) {
-      setError(err.message || 'Failed to sign up with Google');
+      console.error('Google signup error:', err);
+      setError(err.message || 'Google Sign-In is not configured. Please use email/password signup.');
     } finally {
       setLoading(false);
     }

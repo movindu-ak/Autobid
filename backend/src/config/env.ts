@@ -8,7 +8,7 @@ interface EnvConfig {
   MONGO_URI: string;
   JWT_SECRET: string;
   JWT_EXPIRE: string;
-  CORS_ORIGIN: string;
+  CORS_ORIGIN: string[];
 }
 
 const getEnv = (): EnvConfig => {
@@ -20,13 +20,24 @@ const getEnv = (): EnvConfig => {
     }
   }
 
+  // return {
+  //   NODE_ENV: process.env.NODE_ENV || 'development',
+  //   PORT: parseInt(process.env.PORT || '5000', 10),
+  //   MONGO_URI: process.env.MONGO_URI!,
+  //   JWT_SECRET: process.env.JWT_SECRET!,
+  //   JWT_EXPIRE: process.env.JWT_EXPIRE || '7d',
+  //   CORS_ORIGIN: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  // };
+
   return {
     NODE_ENV: process.env.NODE_ENV || 'development',
     PORT: parseInt(process.env.PORT || '5000', 10),
     MONGO_URI: process.env.MONGO_URI!,
     JWT_SECRET: process.env.JWT_SECRET!,
     JWT_EXPIRE: process.env.JWT_EXPIRE || '7d',
-    CORS_ORIGIN: process.env.CORS_ORIGIN || 'http://localhost:5173',
+    CORS_ORIGIN: (process.env.CORS_ORIGIN || 'http://localhost:3000')
+      .split(',')
+      .map(s => s.trim()),
   };
 };
 

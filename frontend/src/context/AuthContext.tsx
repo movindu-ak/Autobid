@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
+import { signInWithPopup } from 'firebase/auth';
+import { auth, googleProvider } from '../config/firebase-config';
 import type { User, AuthContextType } from '../types/index';
 
 // API Base URL
@@ -97,8 +99,58 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const loginWithGoogle = async () => {
-    // Google login not implemented yet on backend
-    throw new Error('Google login not available yet');
+    try {
+      // Check if Firebase is properly configured
+      if (!auth || !googleProvider) {
+        throw new Error('Google Sign-In is not configured. Please set up Firebase.');
+      }
+
+      // Sign in with Google using Firebase
+      const result = await signInWithPopup(auth, googleProvider);
+      const firebaseUser = result.user;
+
+      // Send Google user info to backend
+      const response = await fetch(`${API_BASE_URL}/auth/google`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: firebaseUser.email,
+          displayName: firebaseUser.displayName || firebaseUser.email?.split('@')[0],
+          photoURL: firebaseUser.photoURL,
+          googleId: firebaseUser.uid,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to authenticate with Google');
+      }
+
+      // Save token and user data
+      localStorage.setItem('auth_token', data.data.token);
+      const userData: User = {
+        id: data.data.user.id,
+        email: data.data.user.email,
+        displayName: data.data.user.displayName,
+        photoURL: data.data.user.photoURL,
+        balance: data.data.user.balance,
+        walletBalance: data.data.user.walletBalance,
+        favorites: data.data.user.favorites,
+        createdAt: new Date(data.data.user.createdAt),
+      };
+      localStorage.setItem('user_data', JSON.stringify(userData));
+      setUser(userData);
+    } catch (error: any) {
+      console.error('Google sign-in error:', error);
+      // Provide more helpful error message
+      if (error.code === 'auth/internal-error') {
+        throw new Error('Google Sign-In is not properly configured. Please use email/password signup or contact support.');
+      }
+      throw new Error(error.message || 'Failed to sign in with Google');
+    }
   };
 
   const logout = async () => {
